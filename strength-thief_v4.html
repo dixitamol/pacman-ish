@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Strength Thief</title>
+<style>
+  :root{
+    --bg:#0b1418; --arena:#0f1f26; --arena2:#0a161b;
+    --ink:#d6e8ea; --muted:#7fa3ab; --faint:rgba(214,232,234,.10);
+    --hero:#f4b63f; --villain:#ef5a52; --ok:#46d3a3; --amber:#ffd23f; --ice:#8fd7ff;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Roboto Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:radial-gradient(120% 90% at 50% -10%, #14313b 0%, var(--bg) 60%);
+    color:var(--ink); font-family:var(--sans); min-height:100%; display:flex; align-items:center;
+    justify-content:center; padding:16px; overflow:hidden; -webkit-user-select:none; user-select:none}
+  .wrap{width:min(920px,100%)}
+  .panel{background:linear-gradient(180deg,var(--arena),var(--arena2)); border:1px solid var(--faint);
+    border-radius:14px; box-shadow:0 24px 60px -24px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.03)}
+
+  #hud{display:flex; gap:18px; align-items:center; flex-wrap:wrap; padding:12px 16px; margin-bottom:10px;
+    font-family:var(--mono); font-size:13px; letter-spacing:.04em}
+  #hud .stat{display:flex; gap:7px; align-items:baseline}
+  #hud .lbl{color:var(--muted); text-transform:uppercase; font-size:10.5px; letter-spacing:.14em}
+  #hud .val{font-size:16px; font-weight:600}
+  #hud .val.hero{color:var(--hero)}
+  #hud .spacer{flex:1}
+  #hud .lives span{opacity:.22; transition:opacity .2s}
+  #hud .lives span.on{opacity:1; color:var(--villain)}
+  #hud .pill{padding:3px 9px; border:1px solid var(--faint); border-radius:999px; color:var(--muted);
+    text-transform:uppercase; font-size:10px; letter-spacing:.13em; white-space:nowrap}
+
+  #arena{position:relative; width:100%; aspect-ratio:880/560; overflow:hidden; border-radius:14px; cursor:none;
+    background:linear-gradient(180deg,#102730,#0a161b)}
+  #arena::before{content:""; position:absolute; inset:0; pointer-events:none; z-index:1;
+    background-image:linear-gradient(rgba(70,211,163,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(70,211,163,.045) 1px,transparent 1px);
+    background-size:44px 44px; mask:radial-gradient(120% 120% at 50% 50%,#000 55%,transparent 100%)}
+  #arena::after{content:""; position:absolute; inset:0; pointer-events:none; z-index:1;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 2px,transparent 2px 4px);
+    box-shadow:inset 0 0 120px 20px rgba(0,0,0,.55)}
+  #arena.shake{animation:shake .3s cubic-bezier(.36,.07,.19,.97)}
+  @keyframes shake{10%,90%{transform:translate(-1px,0)}20%,80%{transform:translate(3px,0)}
+    30%,50%,70%{transform:translate(-6px,0)}40%,60%{transform:translate(6px,0)}}
+
+  #world{position:absolute; top:0; left:0; width:880px; height:560px; transform-origin:0 0; z-index:2}
+  #flash{position:absolute; inset:0; pointer-events:none; opacity:0; z-index:10;
+    background:radial-gradient(80% 80% at 50% 50%,transparent 38%,rgba(255,93,82,.55)); transition:opacity .09s}
+  #flash.on{opacity:1}
+  #flash.win{background:radial-gradient(80% 80% at 50% 50%,transparent 46%,rgba(70,211,163,.4))}
+
+  .ent{position:absolute; left:0; top:0; width:40px; height:40px; display:grid; place-items:center;
+    will-change:transform; filter:drop-shadow(0 4px 6px rgba(0,0,0,.6))}
+  .ent span{display:block; font-size:30px; line-height:1; transition:transform .12s}
+  .ent .tag{position:absolute; top:-19px; left:50%; transform:translateX(-50%); font-family:var(--mono);
+    font-size:12px; font-weight:600; padding:1px 7px; border-radius:999px; white-space:nowrap;
+    background:rgba(8,18,22,.85); border:1px solid var(--faint)}
+  .ent.villain .tag{color:var(--villain)}
+  .ent.villain.aggro{filter:drop-shadow(0 0 9px rgba(239,90,82,.95)) drop-shadow(0 4px 6px rgba(0,0,0,.6))}
+  .ent.villain.aggro span{transform:scale(1.2)}
+  .ent.villain.frozen{filter:drop-shadow(0 0 8px rgba(143,215,255,.85)); opacity:.85}
+  .ent.hero{filter:drop-shadow(0 0 10px rgba(244,182,63,.55)) drop-shadow(0 4px 6px rgba(0,0,0,.6)); z-index:5}
+  .ent.hero.shielded{filter:drop-shadow(0 0 12px rgba(94,200,255,.95)) drop-shadow(0 0 4px rgba(94,200,255,.8))}
+  .ent.hero .tag{color:#1a1205; background:var(--hero); border-color:var(--hero); font-weight:700}
+  .ent.hero.invuln{animation:blink .16s steps(2,end) infinite}
+  @keyframes blink{50%{opacity:.22}}
+  .ent.gone{animation:pop .24s forwards}
+  @keyframes pop{to{transform:translate(var(--x),var(--y)) scale(1.8); opacity:0}}
+
+  /* Power-ups */
+  .pu{position:absolute; left:0; top:0; width:34px; height:34px; display:grid; place-items:center;
+    border-radius:50%; background:rgba(8,18,22,.9); border:2px solid var(--ok); z-index:6;
+    box-shadow:0 0 12px rgba(70,211,163,.5); transition:opacity .18s; will-change:transform}
+  .pu span{display:block; font-size:18px; line-height:1; animation:pupulse 1.4s ease-in-out infinite}
+  .pu.surge{border-color:var(--amber); box-shadow:0 0 12px rgba(255,210,63,.6)}
+  .pu.shield{border-color:var(--ice); box-shadow:0 0 12px rgba(94,200,255,.6)}
+  .pu.freeze{border-color:var(--ice); box-shadow:0 0 12px rgba(143,215,255,.6)}
+  .pu.expiring span{animation:pupulse .34s ease-in-out infinite}
+  @keyframes pupulse{50%{transform:scale(1.16)}}
+
+  .ftext{position:absolute; transform:translate(-50%,-50%); font-family:var(--mono); font-weight:700;
+    font-size:15px; pointer-events:none; z-index:8; text-shadow:0 2px 6px #000; animation:rise .95s ease-out forwards}
+  .ftext.good{color:var(--ok)} .ftext.bad{color:var(--villain)}
+  .ftext.ambush{color:var(--amber); font-size:19px; letter-spacing:.1em}
+  @keyframes rise{0%{opacity:0; transform:translate(-50%,-40%) scale(.8)}18%{opacity:1}
+    100%{opacity:0; transform:translate(-50%,-165%) scale(1.05)}}
+  .burst{position:absolute; width:16px; height:16px; transform:translate(-50%,-50%); border-radius:50%;
+    pointer-events:none; z-index:7; animation:ring .5s ease-out forwards}
+  .burst.bad{box-shadow:0 0 0 3px var(--villain)}
+  .burst.good{box-shadow:0 0 0 3px var(--ok)}
+  .burst.ambush{box-shadow:0 0 0 4px var(--amber)}
+  @keyframes ring{0%{opacity:.9; width:14px; height:14px}100%{opacity:0; width:190px; height:190px}}
+
+  /* Countdown */
+  #count{position:absolute; inset:0; z-index:16; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:8px; pointer-events:none}
+  #count.hide{display:none}
+  #count .cn{font-family:var(--mono); font-size:clamp(70px,18vw,140px); font-weight:700; color:var(--hero);
+    text-shadow:0 6px 30px rgba(244,182,63,.45); line-height:1; animation:cpop .5s ease-out}
+  #count.go .cn{color:var(--ok)}
+  #count .cs{font-family:var(--mono); font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted)}
+  @keyframes cpop{0%{opacity:0; transform:scale(.6)}40%{opacity:1; transform:scale(1.05)}100%{transform:scale(1)}}
+
+  /* Overlays */
+  .overlay{position:absolute; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    padding:22px; background:rgba(7,14,17,.82); backdrop-filter:blur(3px); cursor:auto}
+  .overlay.hide{display:none}
+  .card{max-width:560px; width:100%; text-align:center}
+  .eyebrow{font-family:var(--mono); color:var(--ok); letter-spacing:.34em; text-transform:uppercase; font-size:11px; margin-bottom:10px}
+  h1{font-family:var(--mono); font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    font-size:clamp(26px,6vw,40px); line-height:1; margin-bottom:6px}
+  h1 .thief{color:var(--hero)}
+  .sub{color:var(--muted); font-size:14.5px; line-height:1.5; margin:14px auto 20px; max-width:480px}
+  .rules{text-align:left; font-size:13px; color:var(--ink); line-height:1.62; background:rgba(255,255,255,.03);
+    border:1px solid var(--faint); border-radius:10px; padding:14px 16px; margin:0 auto 22px; max-width:500px}
+  .rules b{color:var(--hero); font-weight:600} .rules .r{color:var(--villain); font-weight:600}
+  .rules .g{color:var(--ok); font-weight:600}
+  .keys{font-family:var(--mono); color:var(--ok)}
+  button{font-family:var(--mono); font-size:14px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+    color:#0b1418; background:var(--hero); border:none; border-radius:10px; padding:13px 30px; cursor:pointer;
+    transition:transform .08s, box-shadow .2s; box-shadow:0 10px 24px -10px rgba(244,182,63,.7)}
+  button:hover{transform:translateY(-1px)} button:active{transform:translateY(1px)}
+  button:focus-visible{outline:2px solid #fff; outline-offset:3px}
+
+  /* End screen: tabs + single scroll + pinned footer */
+  .endcard{max-width:820px; display:flex; flex-direction:column; max-height:88vh}
+  .endhead{flex:0 0 auto}
+  .tabs{display:flex; gap:8px; justify-content:center; margin:6px 0 12px; flex:0 0 auto}
+  .tab{background:transparent; color:var(--muted); border:1px solid var(--faint); box-shadow:none;
+    padding:8px 18px; font-size:12px; border-radius:8px}
+  .tab:hover{transform:none; color:var(--ink)}
+  .tab.active{background:var(--ok); color:#04140f}
+  .endbody{flex:1 1 auto; min-height:0; overflow:auto; border:1px solid var(--faint); border-radius:10px; text-align:left}
+  .tabpane.hide{display:none}
+  .endfoot{flex:0 0 auto; margin-top:16px}
+  .verdict{font-family:var(--mono); font-size:clamp(22px,5vw,34px); font-weight:700; text-transform:uppercase;
+    letter-spacing:.05em; margin-bottom:4px}
+  .verdict.win{color:var(--ok)} .verdict.lose{color:var(--villain)}
+  table{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12.5px}
+  thead th{position:sticky; top:0; background:#0e2129; color:var(--ok); text-transform:uppercase; letter-spacing:.1em;
+    font-size:10px; font-weight:600; padding:9px 10px; text-align:right; border-bottom:1px solid var(--faint)}
+  thead th:first-child, tbody td:first-child{text-align:left}
+  tbody td{padding:7px 10px; text-align:right; border-bottom:1px solid rgba(255,255,255,.04); color:var(--ink)}
+  tbody tr.kill td.res{color:var(--ok)} tbody tr.death td.res{color:var(--villain)} tbody tr.block td.res{color:var(--ice)}
+  .lvlband td{background:rgba(70,211,163,.06); color:var(--muted); text-transform:uppercase;
+    letter-spacing:.14em; font-size:10px; padding:6px 10px}
+
+  @media (max-width:560px){#hud{font-size:12px; gap:12px} #hud .pill{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="hud" class="panel">
+    <div class="stat"><span class="lbl">Level</span><span class="val" id="hLevel">1</span></div>
+    <div class="stat"><span class="lbl">Strength</span><span class="val hero" id="hStr">10</span></div>
+    <div class="stat"><span class="lbl">Foes left</span><span class="val" id="hLeft">–</span></div>
+    <div class="spacer"></div>
+    <div class="stat lives"><span class="lbl">Lives</span>&nbsp;<span id="hLives"></span></div>
+    <div class="pill" id="hHint">Hunt the weak · flee the strong</div>
+  </div>
+
+  <div id="arena" class="panel">
+    <div id="world"></div>
+    <div id="flash"></div>
+    <div id="count" class="hide"><div class="cn"></div><div class="cs"></div></div>
+
+    <div class="overlay" id="start">
+      <div class="card">
+        <div class="eyebrow">Absorb · Advance · Survive</div>
+        <h1>Strength <span class="thief">Thief</span></h1>
+        <p class="sub">Every foe wears a number. It's a <i>bluff</i>. Their real power is hidden — you win only if your strength beats their <i>real</i> strength, and beating them steals half of it.</p>
+        <div class="rules">
+          • Move with <span class="keys">WASD</span> / <span class="keys">arrows</span>. Touching a foe starts a fight.<br>
+          • The number over a head is <b>displayed</b> strength — inflated by a hidden 0.5–1.0× multiplier.<br>
+          • Win if <b>your strength ≥ their real strength</b>. Beat them → steal <b>half</b>. An <i>exact tie</i> still kills — but steals nothing.<br>
+          • Foes <span class="r">hunt you</span> and can <span class="r">ambush</span> in packs. Every level <b>resets you to 10</b> — no snowballing.<br>
+          • From level 3, grab timed <span class="g">power-ups</span> (5s each): <b>⚡</b> surge · <b>🛡</b> shield · <b>❄</b> freeze.<br>
+          • Big foes are <b>slow, lurking brutes</b>; small ones are fast and eager — bait the giants once you're strong.<br>
+          • Levels open with a <b>3–5s countdown</b> + a brief grace beat. Clear a level → <b>heal +1 life</b>. 5 levels, 3 lives.
+        </div>
+        <button id="startBtn">Enter the arena</button>
+      </div>
+    </div>
+
+    <div class="overlay hide" id="end">
+      <div class="card endcard">
+        <div class="endhead">
+          <div class="eyebrow">Combat Ledger</div>
+          <div class="verdict" id="verdict">—</div>
+          <p class="sub" id="endSub" style="margin:10px auto 4px"></p>
+        </div>
+        <div class="tabs">
+          <button class="tab active" data-tab="summary">Summary</button>
+          <button class="tab" data-tab="log">Full log</button>
+        </div>
+        <div class="endbody" id="endBody">
+          <div id="summaryReport" class="tabpane"></div>
+          <div id="logReport" class="tabpane hide"></div>
+        </div>
+        <div class="endfoot"><button id="againBtn">Play again</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(() => {
+  const CFG = { W:880, H:560, heroStart:10, lives:3, contact:38, ambushRadius:132,
+    iFrameMs:1150, cooldownMs:420, speed:3.15, entHalf:20, margin:34,
+    countdownMs:3000, puWindowMs:5000, puPickup:30, freezeMs:3000 };
+
+  const TOPS  = [0, 18, 26, 42, 68, 100];
+  const VSPD  = [0, 0.9, 1.2, 1.55, 1.85, 2.1];
+  const AGGRO = [0, 150, 200, 250, 300, 340];
+  const levelCfg = (L) => ({
+    count: 5 + L, low: 6, top: TOPS[L],
+    multMin: 0.5 + (L - 1) * 0.07,
+    multMax: Math.min(1, 0.86 + (L - 1) * 0.035),
+    ambushProb: 0.06 + (L - 1) * 0.11,
+    ambushMax: Math.min(1 + Math.floor(L / 2), 4),
+    vSpeed: VSPD[L], aggro: AGGRO[L],
+  });
+
+  const arena = document.getElementById('arena');
+  const world = document.getElementById('world');
+  const flash = document.getElementById('flash');
+  const el = {
+    level:document.getElementById('hLevel'), str:document.getElementById('hStr'),
+    left:document.getElementById('hLeft'), lives:document.getElementById('hLives'),
+    hint:document.getElementById('hHint'),
+    start:document.getElementById('start'), end:document.getElementById('end'),
+    verdict:document.getElementById('verdict'), endSub:document.getElementById('endSub'),
+    summary:document.getElementById('summaryReport'), log:document.getElementById('logReport'),
+    endBody:document.getElementById('endBody'),
+    count:document.getElementById('count'),
+    cn:document.querySelector('#count .cn'), cs:document.querySelector('#count .cs'),
+  };
+
+  let state, hero, villains, powerups, keys, raf, cdTimers = [], scale = 1;
+  const rand = (a,b)=>a+Math.random()*(b-a);
+  const randInt = (a,b)=>Math.floor(rand(a,b+1));
+  const round2 = n=>Math.round(n*100)/100;
+  const clamp = (v,lo,hi)=>v<lo?lo:v>hi?hi:v;
+
+  function fit(){ scale = arena.clientWidth / CFG.W; world.style.transform = `scale(${scale})`; }
+  addEventListener('resize', fit);
+
+  function reset(){
+    state = { level:1, lives:CFG.lives, cooldownUntil:0, iFrameUntil:0, freezeUntil:0,
+      scatterUntil:0, villainFreezeUntil:0, nextPuAt:Infinity, shield:false, running:false, log:[], peak:{} };
+    hero = { x:CFG.W/2, y:CFG.H/2, strength:CFG.heroStart, el:null };
+    villains = []; powerups = []; keys = new Set();
+    cdTimers.forEach(clearTimeout); cdTimers = [];
+    el.count.classList.add('hide');
+  }
+
+  function makeEnt(cls, emoji, tag){
+    const d = document.createElement('div');
+    d.className = 'ent ' + cls;
+    d.innerHTML = `<div class="tag">${tag}</div><span>${emoji}</span>`;
+    world.appendChild(d); return d;
+  }
+  const setTag = (e,t)=>e.querySelector('.tag').textContent = t;
+  const place = o=>o.el.style.transform = `translate(${o.x-CFG.entHalf}px,${o.y-CFG.entHalf}px)`;
+
+  function floatText(x,y,txt,cls){
+    const d=document.createElement('div'); d.className='ftext '+cls; d.textContent=txt;
+    d.style.left=x+'px'; d.style.top=y+'px'; world.appendChild(d); setTimeout(()=>d.remove(),950);
+  }
+  function burst(x,y,cls){
+    const d=document.createElement('div'); d.className='burst '+cls;
+    d.style.left=x+'px'; d.style.top=y+'px'; world.appendChild(d); setTimeout(()=>d.remove(),520);
+  }
+  function setHint(){ el.hint.textContent = state.shield ? '🛡 Shield ready' : 'Hunt the weak · flee the strong'; }
+
+  function ladder(low, top, n){
+    if (n <= 1) return [Math.round(top)];
+    const r = Math.pow(top/low, 1/(n-1)), out = [];
+    for (let i=0;i<n;i++) out.push(Math.max(3, Math.round(low*Math.pow(r,i)*rand(0.9,1.1))));
+    return out;
+  }
+
+  function spawnLevel(L){
+    villains.forEach(v=>v.el.remove()); villains=[];
+    const c = levelCfg(L), strengths = ladder(c.low, c.top, c.count);
+    const min=CFG.margin, maxX=CFG.W-CFG.margin, maxY=CFG.H-CFG.margin;
+    let gi=0, guard=0;
+    while (gi<strengths.length && guard<6000){
+      guard++;
+      const x=rand(min,maxX), y=rand(min,maxY);
+      if (Math.hypot(x-hero.x,y-hero.y)<150) continue;
+      if (villains.some(v=>Math.hypot(x-v.x,y-v.y)<46)) continue;
+      const displayed = strengths[gi++];
+      const f = clamp((displayed - c.low) / Math.max(1, c.top - c.low), 0, 1);   // 0 = weakest, 1 = strongest
+      const spd = c.vSpeed * (1.25 - 0.55 * f) * rand(0.9, 1.1);                  // weak = fast, strong = slow
+      const aggro = c.aggro * (1.15 - 0.60 * f);                                  // weak = eager, strong = lurks
+      const v = { x, y, displayed, spd, aggro, wt:0, wa:0, el:makeEnt('villain','👹',displayed) };
+      place(v); villains.push(v);
+    }
+    updateHUD();
+  }
+
+  function updateHUD(){
+    el.level.textContent = state.level;
+    el.str.textContent = hero.strength;
+    el.left.textContent = villains.length;
+    let dots=''; for(let i=0;i<CFG.lives;i++) dots+=`<span class="${i<state.lives?'on':''}">❤</span>`;
+    el.lives.innerHTML = dots;
+    if (hero.el) setTag(hero.el, hero.strength);
+  }
+
+  function runCountdown(){
+    cdTimers.forEach(clearTimeout); cdTimers=[];
+    const secs = state.level <= 2 ? 3 : 5;          // more reading time on harder boards
+    const ms = secs * 1000;
+    state.freezeUntil = performance.now() + ms;
+    state.scatterUntil = state.freezeUntil + 2200;  // grace window after GO
+    el.count.classList.remove('hide','go');
+    el.cs.textContent = `Level ${state.level} · strength ${CFG.heroStart}`;
+    const show=(t)=>{ el.cn.textContent=t; el.cn.style.animation='none'; void el.cn.offsetWidth; el.cn.style.animation=''; };
+    show(String(secs));
+    for (let i=1;i<secs;i++){ const n=secs-i; cdTimers.push(setTimeout(()=>show(String(n)), i*1000)); }
+    cdTimers.push(setTimeout(()=>{ el.count.classList.add('go'); show('GO'); }, ms));
+    cdTimers.push(setTimeout(()=>el.count.classList.add('hide'), ms+600));
+  }
+
+  function pulse(win){
+    flash.className = 'on' + (win?' win':'');
+    if(!win) arena.classList.add('shake');
+    setTimeout(()=>{ flash.className=''; arena.classList.remove('shake'); }, win?130:260);
+  }
+  function pulseBlock(){
+    flash.className = 'on win'; arena.classList.add('shake');
+    setTimeout(()=>{ flash.className=''; arena.classList.remove('shake'); }, 240);
+  }
+
+  function moveVillains(now){
+    const frozen = now < state.villainFreezeUntil;
+    const scatter = now < state.scatterUntil;   // brief grace at level start: everyone wanders
+    for (const v of villains){
+      if (frozen){ v.el.classList.add('frozen'); v.el.classList.remove('aggro'); continue; }
+      v.el.classList.remove('frozen');
+      const dx=hero.x-v.x, dy=hero.y-v.y, dist=Math.hypot(dx,dy)||1;
+      const chasing = !scatter && dist < v.aggro;
+      let ax, ay;
+      if (chasing){ ax=dx/dist; ay=dy/dist; }
+      else { v.wt--; if(v.wt<=0){ v.wa=rand(0,Math.PI*2); v.wt=randInt(40,90); } ax=Math.cos(v.wa); ay=Math.sin(v.wa); }
+      for (const u of villains){ if(u===v) continue;
+        const sx=v.x-u.x, sy=v.y-u.y, sd=Math.hypot(sx,sy);
+        if(sd>0 && sd<36){ ax+=sx/sd*0.9; ay+=sy/sd*0.9; } }
+      const m=Math.hypot(ax,ay)||1, sp=v.spd*(chasing?1:0.5);
+      v.x=clamp(v.x+ax/m*sp, CFG.margin, CFG.W-CFG.margin);
+      v.y=clamp(v.y+ay/m*sp, CFG.margin, CFG.H-CFG.margin);
+      place(v);
+      v.el.classList.toggle('aggro', chasing && dist<80);
+    }
+  }
+
+  // ---- Power-ups ----
+  const PU_EMOJI = { surge:'⚡', shield:'🛡️', freeze:'❄️' };
+  function spawnPowerup(now){
+    const r=Math.random(), type = r<0.5?'surge' : r<0.8?'shield' : 'freeze';
+    let x,y,tries=0;
+    do { x=rand(CFG.margin,CFG.W-CFG.margin); y=rand(CFG.margin,CFG.H-CFG.margin); tries++; }
+    while (tries<30 && Math.hypot(x-hero.x,y-hero.y)<130);
+    const d=document.createElement('div'); d.className='pu '+type; d.innerHTML=`<span>${PU_EMOJI[type]}</span>`;
+    d.style.transform=`translate(${x-17}px,${y-17}px)`; world.appendChild(d);
+    powerups.push({ x, y, type, el:d, expire:now+CFG.puWindowMs });
+  }
+  function collectPowerup(pu, now){
+    pu.el.style.opacity=0; const g=pu.el; setTimeout(()=>g.remove(),180);
+    burst(pu.x, pu.y, 'good');
+    if (pu.type==='surge'){
+      const b=Math.max(6, Math.round(hero.strength*0.4)); hero.strength+=b;
+      state.peak[state.level]=Math.max(state.peak[state.level]||CFG.heroStart, hero.strength);
+      floatText(hero.x, hero.y-28, `+${b} ⚡`, 'good'); updateHUD();
+    } else if (pu.type==='shield'){
+      state.shield=true; hero.el.classList.add('shielded'); setHint();
+      floatText(hero.x, hero.y-28, '🛡 SHIELD', 'good');
+    } else {
+      state.villainFreezeUntil=now+CFG.freezeMs; floatText(hero.x, hero.y-28, '❄ FREEZE', 'good');
+    }
+  }
+  function handlePowerups(now){
+    if (state.level>=3 && now>=state.nextPuAt && powerups.length<2){
+      spawnPowerup(now);
+      state.nextPuAt = now + (state.level>=4 ? rand(5000,8500) : rand(6500,11000));
+    }
+    for (let i=powerups.length-1;i>=0;i--){
+      const pu=powerups[i];
+      if (now>pu.expire){ pu.el.style.opacity=0; const g=pu.el; setTimeout(()=>g.remove(),180); powerups.splice(i,1); continue; }
+      pu.el.classList.toggle('expiring', pu.expire-now<1500);
+      if (Math.hypot(pu.x-hero.x, pu.y-hero.y)<CFG.puPickup){ collectPowerup(pu, now); powerups.splice(i,1); }
+    }
+  }
+  function clearPowerups(){ powerups.forEach(p=>p.el.remove()); powerups=[]; }
+
+  // ---- Combat ----
+  function resolve(primary){
+    const c = levelCfg(state.level), now = performance.now();
+    let group = [primary];
+    if (Math.random() < c.ambushProb){
+      const near = villains
+        .filter(v=>v!==primary && Math.hypot(v.x-primary.x,v.y-primary.y)<CFG.ambushRadius)
+        .sort((a,b)=>Math.hypot(a.x-primary.x,a.y-primary.y)-Math.hypot(b.x-primary.x,b.y-primary.y))
+        .slice(0,c.ambushMax);
+      group = group.concat(near);
+    }
+    const heroStr = hero.strength;
+    let groupReal = 0;
+    const rolls = group.map(v=>{
+      const mult=round2(rand(c.multMin,c.multMax)), real=Math.max(1,Math.round(v.displayed*mult));
+      groupReal+=real; return {v,mult,real};
+    });
+    const win = heroStr >= groupReal;      // tie now kills...
+    const strong = heroStr > groupReal;     // ...but only a strict win rewards strength
+    const ambush = group.length > 1;
+    const cx=group.reduce((s,v)=>s+v.x,0)/group.length, cy=group.reduce((s,v)=>s+v.y,0)/group.length;
+    const outcome = win ? 'Kill' : (state.shield ? 'Block' : 'Death');
+
+    rolls.forEach(r=>state.log.push({ level:state.level, displayed:r.v.displayed, mult:r.mult,
+      real:r.real, heroStr, group:group.length, outcome }));
+
+    if (ambush){ floatText(hero.x, hero.y-42, `AMBUSH ×${group.length}`, 'ambush'); burst(cx,cy,'ambush'); }
+
+    if (win){
+      let gained=0;
+      rolls.forEach(r=>{
+        if (strong) gained += Math.floor(r.real/2);
+        burst(r.v.x, r.v.y, 'good');
+        r.v.el.style.setProperty('--x',(r.v.x-CFG.entHalf)+'px');
+        r.v.el.style.setProperty('--y',(r.v.y-CFG.entHalf)+'px');
+        r.v.el.classList.add('gone'); const g=r.v.el; setTimeout(()=>g.remove(),240);
+      });
+      villains = villains.filter(v=>!group.includes(v));
+      if (strong){
+        hero.strength += gained;
+        state.peak[state.level] = Math.max(state.peak[state.level]||CFG.heroStart, hero.strength);
+        floatText(hero.x, hero.y-26, `+${gained}`, 'good');
+      } else {
+        floatText(hero.x, hero.y-26, 'EVEN MATCH', 'ambush');
+      }
+      pulse(true); updateHUD();
+      if (villains.length===0) return levelClear();
+    } else {
+      let ax=hero.x-cx, ay=hero.y-cy; const d=Math.hypot(ax,ay)||1; ax/=d; ay/=d;
+      hero.x=clamp(hero.x+ax*120,CFG.margin,CFG.W-CFG.margin);
+      hero.y=clamp(hero.y+ay*120,CFG.margin,CFG.H-CFG.margin); place(hero);
+      group.forEach(v=>{ v.x=clamp(v.x-ax*60,CFG.margin,CFG.W-CFG.margin);
+        v.y=clamp(v.y-ay*60,CFG.margin,CFG.H-CFG.margin); place(v); });
+      state.iFrameUntil = now + CFG.iFrameMs;
+      hero.el.classList.add('invuln'); setTimeout(()=>hero.el.classList.remove('invuln'), CFG.iFrameMs);
+      if (outcome==='Block'){
+        state.shield=false; hero.el.classList.remove('shielded'); setHint();
+        burst(hero.x, hero.y, 'good'); floatText(hero.x, hero.y-30, '🛡 BLOCKED', 'good'); pulseBlock();
+      } else {
+        state.lives--; burst(hero.x, hero.y, 'bad'); floatText(hero.x, hero.y-30, '−1 ❤', 'bad'); pulse(false);
+      }
+      updateHUD();
+      if (outcome!=='Block' && state.lives<=0) return gameOver(false);
+    }
+    state.cooldownUntil = now + CFG.cooldownMs;
+  }
+
+  function enterLevel(){
+    hero.strength = CFG.heroStart;
+    state.peak[state.level] = CFG.heroStart;
+    state.shield=false; state.villainFreezeUntil=0; hero.el.classList.remove('shielded'); setHint();
+    hero.x=CFG.W/2; hero.y=CFG.H/2; place(hero);
+    clearPowerups();
+    state.cooldownUntil=0; state.iFrameUntil=0;
+    spawnLevel(state.level);
+    updateHUD();
+    runCountdown();
+    state.nextPuAt = state.freezeUntil + rand(1500,4500);  // first drop shortly after GO
+  }
+
+  function levelClear(){
+    if (state.level>=5) return gameOver(true);
+    state.level++;
+    const healed = state.lives < CFG.lives;
+    state.lives = Math.min(CFG.lives, state.lives + 1);   // patch up one life between levels
+    enterLevel();
+    if (healed) floatText(hero.x, hero.y-44, '+1 ❤', 'good');
+  }
+
+  function tick(){
+    const now = performance.now();
+    let dx=0, dy=0;
+    if (keys.has('a')||keys.has('arrowleft')) dx--;
+    if (keys.has('d')||keys.has('arrowright')) dx++;
+    if (keys.has('w')||keys.has('arrowup')) dy--;
+    if (keys.has('s')||keys.has('arrowdown')) dy++;
+    if (dx||dy){ const m=Math.hypot(dx,dy);
+      hero.x=clamp(hero.x+dx/m*CFG.speed,CFG.margin,CFG.W-CFG.margin);
+      hero.y=clamp(hero.y+dy/m*CFG.speed,CFG.margin,CFG.H-CFG.margin); place(hero); }
+
+    const inCountdown = now < state.freezeUntil;
+    if (state.running && !inCountdown){
+      moveVillains(now);
+      handlePowerups(now);
+      if (now>state.cooldownUntil && now>state.iFrameUntil){
+        let best=null, bd=CFG.contact;
+        for (const v of villains){ const d=Math.hypot(v.x-hero.x,v.y-hero.y); if(d<bd){bd=d;best=v;} }
+        if (best) resolve(best);
+      }
+    }
+    raf = requestAnimationFrame(tick);
+  }
+
+  function start(){
+    reset(); fit();
+    el.start.classList.add('hide'); el.end.classList.add('hide');
+    hero.el = makeEnt('hero','🦸',hero.strength); place(hero);
+    state.running = true;
+    enterLevel();
+    cancelAnimationFrame(raf); tick();
+  }
+
+  function gameOver(won){
+    state.running=false;
+    cdTimers.forEach(clearTimeout); cdTimers=[]; el.count.classList.add('hide');
+    if (hero.el) hero.el.remove();
+    villains.forEach(v=>v.el.remove()); villains=[];
+    clearPowerups();
+    buildReport(won);
+    el.end.classList.remove('hide');
+  }
+
+  function buildReport(won){
+    el.verdict.textContent = won ? 'Arena cleared' : 'You fell';
+    el.verdict.className = 'verdict ' + (won?'win':'lose');
+    const kills = state.log.filter(r=>r.outcome==='Kill').length;
+    el.endSub.textContent = won
+      ? `You thieved through all 5 levels — ${kills} foes drained.`
+      : `Reached level ${state.level}. ${kills} kills before the numbers ran out.`;
+
+    let s = `<table><thead><tr><th>Level</th><th>Kills</th><th>Deaths</th><th>Blocks</th><th>Peak str</th><th>Avg mult</th><th>Avg real</th></tr></thead><tbody>`;
+    for (let L=1; L<=5; L++){
+      const rows = state.log.filter(r=>r.level===L); if(!rows.length) continue;
+      const k=rows.filter(r=>r.outcome==='Kill').length;
+      const d=rows.filter(r=>r.outcome==='Death').length;
+      const b=rows.filter(r=>r.outcome==='Block').length;
+      const am=(rows.reduce((a,r)=>a+r.mult,0)/rows.length).toFixed(2);
+      const ar=Math.round(rows.reduce((a,r)=>a+r.real,0)/rows.length);
+      s += `<tr><td>${L}</td><td>${k}</td><td>${d}</td><td>${b}</td><td>${state.peak[L]||CFG.heroStart}</td><td>×${am}</td><td>${ar}</td></tr>`;
+    }
+    el.summary.innerHTML = s + `</tbody></table>`;
+
+    let g = `<table><thead><tr><th>#</th><th>Displayed</th><th>Mult</th><th>Real</th><th>Hero</th><th>Group</th><th>Result</th></tr></thead><tbody>`;
+    let curL=0, i=0;
+    for (const r of state.log){
+      if (r.level!==curL){ curL=r.level; g+=`<tr class="lvlband"><td colspan="7">Level ${curL}</td></tr>`; }
+      i++;
+      const cls = r.outcome==='Kill'?'kill':r.outcome==='Block'?'block':'death';
+      g += `<tr class="${cls}"><td>${i}</td><td>${r.displayed}</td><td>×${r.mult.toFixed(2)}</td>`
+         + `<td>${r.real}</td><td>${r.heroStr}</td><td>${r.group>1?r.group+' (ambush)':'1'}</td>`
+         + `<td class="res">${r.outcome}</td></tr>`;
+    }
+    el.log.innerHTML = g + `</tbody></table>`;
+
+    // reset to Summary tab
+    document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active', x.dataset.tab==='summary'));
+    el.summary.classList.remove('hide'); el.log.classList.add('hide'); el.endBody.scrollTop=0;
+  }
+
+  // ---- Input / wiring ----
+  const HANDLED = new Set(['arrowup','arrowdown','arrowleft','arrowright']);
+  addEventListener('keydown', e=>{ const k=e.key.toLowerCase(); if(HANDLED.has(k)) e.preventDefault(); keys.add(k); });
+  addEventListener('keyup', e=>keys.delete(e.key.toLowerCase()));
+  addEventListener('blur', ()=>keys.clear());
+  document.getElementById('startBtn').addEventListener('click', start);
+  document.getElementById('againBtn').addEventListener('click', start);
+  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active');
+    const tab=t.dataset.tab;
+    el.summary.classList.toggle('hide', tab!=='summary');
+    el.log.classList.toggle('hide', tab!=='log');
+    el.endBody.scrollTop=0;
+  }));
+
+  reset(); fit();
+})();
+</script>
+</body>
+</html>
